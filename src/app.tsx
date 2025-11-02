@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
 type Player = "blue" | "red" | null;
 type Board = Player[][];
@@ -37,32 +37,39 @@ export default function App() {
       return;
     }
 
-    setCurrentPlayer(currentPlayer === "blue" ? "red" : "blue");
+    setIsAiThinking(true);
+
+    setTimeout(() => {
+      const move = getBestMove(newBoard);
+
+      if (move) {
+        const [r, c] = move;
+        const aiBoard = newBoard.map((rw) => [...rw]);
+        aiBoard[r][c] = aiPlayer;
+        setBoard(aiBoard);
+
+        const aiWinner = checkWinner(aiBoard);
+        if (aiWinner) {
+          setWinner(aiWinner);
+        } else {
+          setCurrentPlayer("blue");
+        }
+      }
+
+      setIsAiThinking(false);
+    }, 200);
   }
 
-  function getBestMove(
-    board: Board,
-    player: "blue" | "red",
-    depth: number,
-    useAB: boolean
-  ): [number, number] | null {
+  function getBestMove(board: Board): [number, number] | null {
     const moves = getValidMoves(board);
     let bestMove: [number, number] | null = null;
     let bestScore = -Infinity;
 
     for (const [r, c] of moves) {
       const newBoard = board.map((rw) => [...rw]);
-      newBoard[r][c] = player;
+      newBoard[r][c] = "red";
 
-      const result = minimax(
-        newBoard,
-        depth - 1,
-        false,
-        player,
-        -Infinity,
-        Infinity,
-        useAB
-      );
+      const result = minimax(newBoard, depth - 1, false, "red");
 
       if (result > bestScore) {
         bestScore = result;
@@ -79,8 +86,7 @@ export default function App() {
     maximizing: boolean,
     player: "blue" | "red",
     alpha: number = -Infinity,
-    beta: number = Infinity,
-    useAB: boolean = false
+    beta: number = Infinity
   ): number {
     const winner = checkWinner(board);
     if (winner || depth === 0) {
@@ -103,15 +109,14 @@ export default function App() {
         !maximizing,
         player,
         alpha,
-        beta,
-        useAB
+        beta
       );
 
       bestScore = maximizing
         ? Math.max(bestScore, score)
         : Math.min(bestScore, score);
 
-      if (useAB) {
+      if (useAlphaBeta) {
         if (maximizing) {
           alpha = Math.max(alpha, bestScore);
         } else {
@@ -125,50 +130,61 @@ export default function App() {
     return bestScore;
   }
 
+  function getValidMoves(board: Board): [number, number][] {
+    const moves: [number, number][] = [];
+
+    for (let i = 0; i < BOARD_SIZE; i++) {
+      for (let j = 0; j < BOARD_SIZE; j++) {
+        if (board[i][j] === null) moves.push([i, j]);
+      }
+    }
+
+    return moves;
+  }
+
   function evaluateBoard(board: Board, player: "blue" | "red"): number {
     const opponent = player === "blue" ? "red" : "blue";
-    const myDist = shortestConnection(board, player);
-    const oppDist = shortestConnection(board, opponent);
-
-    return oppDist - myDist;
+    return (
+      shortestConnection(board, opponent) - shortestConnection(board, player)
+    );
   }
 
   function shortestConnection(board: Board, player: Player): number {
     const visited = Array(BOARD_SIZE)
       .fill(null)
       .map(() => Array(BOARD_SIZE).fill(false));
-    const queue: [number, number, number][] = [];
+    const queue: { row: number; col: number; dist: number }[] = [];
 
     if (player === "blue") {
       for (let r = 0; r < BOARD_SIZE; r++) {
-        if (board[r][0] !== "red") queue.push([r, 0, 0]);
+        if (board[r][0] !== "red") queue.push({ row: r, col: 0, dist: 0 });
       }
     } else if (player === "red") {
       for (let c = 0; c < BOARD_SIZE; c++) {
-        if (board[0][c] !== "blue") queue.push([0, c, 0]);
+        if (board[0][c] !== "blue") queue.push({ row: 0, col: c, dist: 0 });
       }
     }
 
     while (queue.length > 0) {
-      const [r, c, dist] = queue.shift()!;
-      if (visited[r][c]) continue;
-      visited[r][c] = true;
+      const { row, col, dist } = queue.shift()!;
+      if (visited[row][col]) continue;
+      visited[row][col] = true;
 
       if (
-        (player === "blue" && c === BOARD_SIZE - 1) ||
-        (player === "red" && r === BOARD_SIZE - 1)
+        (player === "blue" && col === BOARD_SIZE - 1) ||
+        (player === "red" && row === BOARD_SIZE - 1)
       ) {
         return dist;
       }
 
-      for (const [nr, nc] of getNeighbors(r, c)) {
+      for (const [nr, nc] of getNeighbors(row, col)) {
         if (visited[nr][nc]) continue;
         const cell = board[nr][nc];
 
         if (cell === player) {
-          queue.push([nr, nc, dist]);
+          queue.push({ row: nr, col: nc, dist });
         } else if (cell === null) {
-          queue.push([nr, nc, dist + 1]);
+          queue.push({ row: nr, col: nc, dist: dist + 1 });
         }
       }
     }
@@ -189,18 +205,6 @@ export default function App() {
     return directions
       .map(([dr, dc]) => [row + dr, col + dc] as [number, number])
       .filter(([r, c]) => r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE);
-  }
-
-  function getValidMoves(board: Board): [number, number][] {
-    const moves: [number, number][] = [];
-
-    for (let i = 0; i < BOARD_SIZE; i++) {
-      for (let j = 0; j < BOARD_SIZE; j++) {
-        if (board[i][j] === null) moves.push([i, j]);
-      }
-    }
-
-    return moves;
   }
 
   function checkWinner(board: Board): Player {
@@ -255,29 +259,6 @@ export default function App() {
 
     return false;
   }
-
-  useEffect(() => {
-    if (currentPlayer === aiPlayer && !winner && !isAiThinking) {
-      setIsAiThinking(true);
-
-      setTimeout(() => {
-        const move = getBestMove(board, aiPlayer, depth, useAlphaBeta);
-
-        if (move) {
-          const [r, c] = move;
-          const newBoard = board.map((rw) => [...rw]);
-          newBoard[r][c] = aiPlayer;
-          setBoard(newBoard);
-
-          const gameWinner = checkWinner(newBoard);
-          if (gameWinner) setWinner(gameWinner);
-          else setCurrentPlayer("blue");
-        }
-
-        setIsAiThinking(false);
-      }, 200);
-    }
-  }, [currentPlayer]);
 
   function resetGame() {
     setBoard(
